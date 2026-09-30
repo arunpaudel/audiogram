@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Audiogram Studio</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel for in-browser JSX parsing -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-[#fafafa] text-neutral-900 font-sans antialiased min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function App() {
+      const [audioFile, setAudioFile] = useState(null);
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [waveType, setWaveType] = useState('bars'); // 'bars' | 'wave' | 'circle'
+      const [waveColor, setWaveColor] = useState('#171717');
+      const [barCount, setBarCount] = useState(36);
+      const [waveScale, setWaveScale] = useState(1.2);
+      const [showProgress, setShowProgress] = useState(false);
+      const [progressColor, setProgressColor] = useState('#737373');
+      const [progressHeight, setProgressHeight] = useState(6);
+      const [aspectRatio, setAspectRatio] = useState('9:16'); // '9:16' | '1:1' | '16:9'
+      const [useGreenScreen, setUseGreenScreen] = useState(false);
+      const [isExporting, setIsExporting] = useState(false);
+      const [exportProgress, setExportProgress] = useState(0);
+
+      const canvasRef = useRef(null);
+      const audioRef = useRef(null);
+      const audioCtxRef = useRef(null);
+      const analyserRef = useRef(null);
+      const sourceRef = useRef(null);
+      const animationFrameRef = useRef(null);
+      const mediaRecorderRef = useRef(null);
+      const recordedChunksRef = useRef([]);
+
+      const dimensions = {
+        '9:16': { width: 1080, height: 1920 },
+        '1:1': { width: 1080, height: 1080 },
+        '16:9': { width: 1920, height: 1080 }
+      }[aspectRatio];
+
+      const setupAudio = (file) => {
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const ctx = audioCtxRef.current;
+        if (ctx.state === 'suspended') ctx.resume();
+
+        if (!analyserRef.current) {
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          analyserRef.current = analyser;
+        }
+
+        const url = URL.createObjectURL(file);
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          if (!sourceRef.current) {
+            sourceRef.current = ctx.createMediaElementSource(audioRef.current);
+            sourceRef.current.connect(analyserRef.current);
+            analyserRef.current.connect(ctx.destination);
+          }
+        }
+      };
+
+      const handleFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          setAudioFile(file);
+          setupAudio(file);
+        }
+      };
+
+      const togglePlay = () => {
+        if (!audioRef.current) return;
+        if (audioCtxRef.current?.state === 'suspended') {
+          audioCtxRef.current.resume();
+        }
+        if (isPlaying) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+        } else {
+          audioRef.current.play();
+          setIsPlaying(true);
+        }
+      };
+
+      // Drawing Engine
+      const draw = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const { width, height } = dimensions;
+
+        // Clear canvas
+        if (useGreenScreen) {
+          ctx.fillStyle = '#00FF00';
+          ctx.fillRect(0, 0, width, height);
+        } else {
+          ctx.clearRect(0, 0, width, height);
+        }
+
+        let freqData = new Uint8Array(32);
+        if (analyserRef.current && isPlaying) {
+          freqData = new Uint8Array(analyserRef.current.frequencyBinCount);
+          analyserRef.current.getByteFrequencyData(freqData);
+        }
+
+        const cx = width / 2;
+        const cy = height / 2;
+
+        if (waveType === 'bars') {
+          const barWidth = (width * 0.7) / barCount;
+          const startX = (width - width * 0.7) / 2;
+          ctx.fillStyle = waveColor;
+
+          for (let i = 0; i < barCount; i++) {
+            const rawVal = freqData[i % freqData.length] || 4;
+            const h = Math.max(6, (rawVal / 255) * 360 * waveScale);
+            const x = startX + i * barWidth;
+            const y = cy - h / 2;
+
+            ctx.beginPath();
+            ctx.roundRect(x, y, barWidth * 0.65, h, 6);
+            ctx.fill();
+          }
+        } else if (waveType === 'wave') {
+          ctx.beginPath();
+          ctx.strokeStyle = waveColor;
+          ctx.lineWidth = 8;
+          ctx.lineCap = 'round';
+          const sliceWidth = (width * 0.75) / barCount;
+          const startX = (width - width * 0.75) / 2;
+
+          for (let i = 0; i < barCount; i++) {
+            const val = ((freqData[i % freqData.length] || 5) / 255) * 200 * waveScale;
+            const x = startX + i * sliceWidth;
+            const y = cy + (i % 2 === 0 ? -val : val);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        } else if (waveType === 'circle') {
+          const radius = Math.min(width, height) * 0.2;
+          ctx.strokeStyle = waveColor;
+          ctx.lineWidth = 6;
+
+          for (let i = 0; i < barCount; i++) {
+            const angle = (i / barCount) * Math.PI * 2;
+            const val = ((freqData[i % freqData.length] || 4) / 255) * 120 * waveScale;
+            const x1 = cx + Math.cos(angle) * radius;
+            const y1 = cy + Math.sin(angle) * radius;
+            const x2 = cx + Math.cos(angle) * (radius + val);
+            const y2 = cy + Math.sin(angle) * (radius + val);
+
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+          }
+        }
+
+        // Progress Bar
+        if (showProgress && audioRef.current && audioRef.current.duration) {
+          const pct = audioRef.current.currentTime / audioRef.current.duration;
+          const barW = width * 0.8;
+          const barX = (width - barW) / 2;
+          const barY = cy + 260;
+
+          // Track
+          ctx.fillStyle = 'rgba(150, 150, 150, 0.25)';
+          ctx.beginPath();
+          ctx.roundRect(barX, barY, barW, progressHeight, 4);
+          ctx.fill();
+
+          // Fill
+          ctx.fillStyle = progressColor;
+          ctx.beginPath();
+          ctx.roundRect(barX, barY, barW * pct, progressHeight, 4);
+          ctx.fill();
+        }
+
+        animationFrameRef.current = requestAnimationFrame(draw);
+      };
+
+      useEffect(() => {
+        animationFrameRef.current = requestAnimationFrame(draw);
+        return () => cancelAnimationFrame(animationFrameRef.current);
+      }, [dimensions, waveType, waveColor, barCount, waveScale, showProgress, progressColor, progressHeight, useGreenScreen, isPlaying]);
+
+      // Video Export
+      const startExport = () => {
+        if (!audioRef.current || !canvasRef.current) return;
+        setIsExporting(true);
+        setExportProgress(0);
+
+        const canvas = canvasRef.current;
+        const stream = canvas.captureStream(30);
+
+        // Mix audio
+        if (audioCtxRef.current) {
+          const dest = audioCtxRef.current.createMediaStreamDestination();
+          sourceRef.current.connect(dest);
+          stream.addTrack(dest.stream.getAudioTracks()[0]);
+        }
+
+        const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+          ? 'video/webm;codecs=vp9'
+          : 'video/webm';
+
+        const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 });
+        recordedChunksRef.current = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(recordedChunksRef.current, { type: mime });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `audiogram_overlay_${aspectRatio.replace(':', '_')}.webm`;
+          a.click();
+          setIsExporting(false);
+        };
+
+        mediaRecorderRef.current = recorder;
+        audioRef.current.currentTime = 0;
+        audioRef.current.play();
+        setIsPlaying(true);
+        recorder.start();
+
+        audioRef.current.ontimeupdate = () => {
+          if (audioRef.current) {
+            setExportProgress(Math.round((audioRef.current.currentTime / audioRef.current.duration) * 100));
+          }
+        };
+
+        audioRef.current.onended = () => {
+          recorder.stop();
+          setIsPlaying(false);
+        };
+      };
+
+      return (
+        <div className="max-w-md mx-auto p-4 flex flex-col gap-4 pb-20">
+          <header className="border-b border-neutral-200 pb-3 flex justify-between items-center">
+            <div>
+              <h1 className="text-base font-semibold tracking-tight text-neutral-900">Audiogram Overlay</h1>
+              <p className="text-xs text-neutral-400">1080p Transparent / Green Screen</p>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-300 font-mono text-neutral-600">v1.0</span>
+          </header>
+
+          {/* Audio Upload */}
+          <div className="bg-white border border-neutral-200 rounded-xl p-3 shadow-sm">
+            <label className="block text-xs font-medium text-neutral-600 mb-1">Select Audio Track</label>
+            <input 
+              type="file" 
+              accept="audio/*" 
+              onChange={handleFileUpload} 
+              className="text-xs file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-neutral-900 file:text-white"
+            />
+            <audio ref={audioRef} onEnded={() => setIsPlaying(false)} className="hidden" />
+          </div>
+
+          {/* Canvas Preview Container */}
+          <div className={`relative border border-neutral-300 rounded-xl overflow-hidden flex items-center justify-center ${useGreenScreen ? 'bg-[#00FF00]' : 'bg-[radial-gradient(#e5e5e5_1px,transparent_1px)] [background-size:16px_16px] bg-white'}`}>
+            <canvas 
+              ref={canvasRef} 
+              width={dimensions.width} 
+              height={dimensions.height}
+              className="w-full max-h-[360px] object-contain"
+            />
+          </div>
+
+          {/* Play & Export Buttons */}
+          <div className="flex gap-2">
+            <button 
+              onClick={togglePlay}
+              disabled={!audioFile || isExporting}
+              className="flex-1 py-2.5 rounded-xl bg-neutral-900 text-white text-xs font-medium disabled:opacity-40"
+            >
+              {isPlaying ? 'Pause Preview' : 'Play Preview'}
+            </button>
+            <button 
+              onClick={startExport}
+              disabled={!audioFile || isExporting}
+              className="flex-1 py-2.5 rounded-xl border border-neutral-900 text-neutral-900 text-xs font-medium disabled:opacity-40"
+            >
+              {isExporting ? `Rendering (${exportProgress}%)` : 'Export Overlay'}
+            </button>
+          </div>
+
+          {/* Customization Controls */}
+          <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm space-y-4">
+            {/* Aspect Ratio */}
+            <div>
+              <label className="text-xs font-medium text-neutral-600 block mb-1.5">Aspect Ratio</label>
+              <div className="grid grid-cols-3 gap-2">
+                {['9:16', '1:1', '16:9'].map(ratio => (
+                  <button 
+                    key={ratio}
+                    onClick={() => setAspectRatio(ratio)}
+                    className={`py-1.5 text-xs rounded-lg border font-mono ${aspectRatio === ratio ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 text-neutral-600'}`}
+                  >
+                    {ratio}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Waveform Style */}
+            <div>
+              <label className="text-xs font-medium text-neutral-600 block mb-1.5">Waveform Style</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'bars', label: 'Bars' },
+                  { id: 'wave', label: 'Curve' },
+                  { id: 'circle', label: 'Radial' }
+                ].map(item => (
+                  <button 
+                    key={item.id}
+                    onClick={() => setWaveType(item.id)}
+                    className={`py-1.5 text-xs rounded-lg border ${waveType === item.id ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 text-neutral-600'}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Colors */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-neutral-600 block mb-1">Wave Color</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="color" 
+                    value={waveColor} 
+                    onChange={(e) => setWaveColor(e.target.value)} 
+                    className="w-8 h-8 rounded border-0 p-0 cursor-pointer"
+                  />
+                  <span className="text-xs font-mono text-neutral-500">{waveColor}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-neutral-600 block mb-1">Mode</label>
+                <button 
+                  onClick={() => setUseGreenScreen(!useGreenScreen)}
+                  className={`w-full py-1.5 px-2 text-xs rounded-lg border font-medium ${useGreenScreen ? 'border-green-600 bg-green-50 text-green-700' : 'border-neutral-200 text-neutral-600'}`}
+                >
+                  {useGreenScreen ? 'Green Screen (#00FF00)' : 'Alpha Transparent'}
+                </button>
+              </div>
+            </div>
+
+            {/* Progress Bar Toggle */}
+            <div className="border-t border-neutral-100 pt-3">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-medium text-neutral-700">Audio Progress Bar</span>
+                <input 
+                  type="checkbox" 
+                  checked={showProgress} 
+                  onChange={(e) => setShowProgress(e.target.checked)}
+                  className="rounded text-neutral-900 focus:ring-0"
+                />
+              </div>
+
+              {showProgress && (
+                <div className="flex items-center gap-3 mt-2">
+                  <input 
+                    type="color" 
+                    value={progressColor} 
+                    onChange={(e) => setProgressColor(e.target.value)} 
+                    className="w-7 h-7 rounded border-0 p-0 cursor-pointer"
+                  />
+                  <input 
+                    type="range" 
+                    min="3" 
+                    max="14" 
+                    value={progressHeight} 
+                    onChange={(e) => setProgressHeight(Number(e.target.value))} 
+                    className="flex-1 accent-neutral-900"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
