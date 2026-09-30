@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Audiogram Studio</title>
+  <title>Audiogram Studio (16:9)</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- React & ReactDOM CDN -->
@@ -31,23 +31,23 @@
       const [isPlaying, setIsPlaying] = useState(false);
       const [waveType, setWaveType] = useState('bars'); // 'bars' | 'wave' | 'circle'
       const [waveColor, setWaveColor] = useState('#171717');
-      const [barCount, setBarCount] = useState(36);
+      const [barCount, setBarCount] = useState(48);
       const [waveScale, setWaveScale] = useState(1.2);
 
       // Progress bar & spacing states
       const [showProgress, setShowProgress] = useState(true);
       const [sameAsWave, setSameAsWave] = useState(true);
       const [progressColor, setProgressColor] = useState('#171717');
-      const [progressHeight, setProgressHeight] = useState(8); // Progress Bar Thickness
-      const [spacingOffset, setSpacingOffset] = useState(260); // Distance below waveform
+      const [progressHeight, setProgressHeight] = useState(8);
+      const [spacingOffset, setSpacingOffset] = useState(240); // Distance below waveform
 
       // Time stamp states
       const [showTimestamp, setShowTimestamp] = useState(true);
+      const [timestampSize, setTimestampSize] = useState(24); // Font size in px
       const [currentTimeStr, setCurrentTimeStr] = useState('0:00');
       const [totalTimeStr, setTotalTimeStr] = useState('0:00');
 
       // Export & display states
-      const [aspectRatio, setAspectRatio] = useState('9:16'); // '9:16' | '1:1' | '16:9'
       const [useGreenScreen, setUseGreenScreen] = useState(false);
       const [isExporting, setIsExporting] = useState(false);
       const [exportProgress, setExportProgress] = useState(0);
@@ -64,11 +64,8 @@
       const mediaRecorderRef = useRef(null);
       const recordedChunksRef = useRef([]);
 
-      const dimensions = {
-        '9:16': { width: 1080, height: 1920 },
-        '1:1': { width: 1080, height: 1080 },
-        '16:9': { width: 1920, height: 1080 }
-      }[aspectRatio];
+      // Fixed 16:9 Full HD Dimensions
+      const dimensions = { width: 1920, height: 1080 };
 
       const formatTime = (secs) => {
         if (!secs || isNaN(secs)) return '0:00';
@@ -154,7 +151,7 @@
 
           for (let i = 0; i < barCount; i++) {
             const rawVal = freqData[i % freqData.length] || 4;
-            const h = Math.max(8, (rawVal / 255) * 360 * waveScale);
+            const h = Math.max(8, (rawVal / 255) * 320 * waveScale);
             const x = startX + i * barWidth;
             const y = cy - h / 2;
 
@@ -171,7 +168,7 @@
           const startX = (width - width * 0.75) / 2;
 
           for (let i = 0; i < barCount; i++) {
-            const val = ((freqData[i % freqData.length] || 6) / 255) * 220 * waveScale;
+            const val = ((freqData[i % freqData.length] || 6) / 255) * 200 * waveScale;
             const x = startX + i * sliceWidth;
             const y = cy + (i % 2 === 0 ? -val : val);
             if (i === 0) ctx.moveTo(x, y);
@@ -179,7 +176,7 @@
           }
           ctx.stroke();
         } else if (waveType === 'circle') {
-          const radius = Math.min(width, height) * 0.22;
+          const radius = height * 0.22;
           ctx.strokeStyle = waveColor;
           ctx.lineWidth = 6;
 
@@ -198,7 +195,6 @@
           }
         }
 
-        // Active Color for Progress Bar
         const activeBarColor = sameAsWave ? waveColor : progressColor;
 
         // Progress Bar & Spacing Calculation
@@ -227,16 +223,18 @@
           // Time Counters
           if (showTimestamp) {
             ctx.fillStyle = activeBarColor;
-            ctx.font = '600 24px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.font = `600 ${timestampSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
             ctx.textBaseline = 'middle';
+
+            const textYOffset = barY + progressHeight + timestampSize * 0.8 + 10;
 
             // Left (Current Time)
             ctx.textAlign = 'left';
-            ctx.fillText(formatTime(curTime), barX, barY + progressHeight + 30);
+            ctx.fillText(formatTime(curTime), barX, textYOffset);
 
             // Right (Total Duration)
             ctx.textAlign = 'right';
-            ctx.fillText(formatTime(dur), barX + barW, barY + progressHeight + 30);
+            ctx.fillText(formatTime(dur), barX + barW, textYOffset);
           }
         }
 
@@ -246,7 +244,7 @@
       useEffect(() => {
         animationFrameRef.current = requestAnimationFrame(draw);
         return () => cancelAnimationFrame(animationFrameRef.current);
-      }, [dimensions, waveType, waveColor, barCount, waveScale, showProgress, sameAsWave, progressColor, progressHeight, spacingOffset, showTimestamp, useGreenScreen, isPlaying]);
+      }, [waveType, waveColor, barCount, waveScale, showProgress, sameAsWave, progressColor, progressHeight, spacingOffset, showTimestamp, timestampSize, useGreenScreen, isPlaying]);
 
       const handleTimeUpdate = () => {
         if (audioRef.current) {
@@ -286,7 +284,7 @@
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `audiogram_overlay_${aspectRatio.replace(':', '_')}.webm`;
+          a.download = `audiogram_overlay_16_9.webm`;
           a.click();
           setIsExporting(false);
         };
@@ -315,9 +313,9 @@
           <header className="border-b border-neutral-200 pb-3 flex justify-between items-center">
             <div>
               <h1 className="text-base font-semibold tracking-tight text-neutral-900">Audiogram Studio</h1>
-              <p className="text-xs text-neutral-500">Transparent & Green Screen Overlay</p>
+              <p className="text-xs text-neutral-500">1080p (16:9) Overlay Generator</p>
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-300 font-mono text-neutral-600">v2.1</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-300 font-mono text-neutral-600">16:9</span>
           </header>
 
           {/* Audio Upload */}
@@ -338,13 +336,13 @@
             />
           </div>
 
-          {/* Preview Canvas */}
-          <div className={`relative border border-neutral-300 rounded-xl overflow-hidden flex items-center justify-center ${useGreenScreen ? 'bg-[#00FF00]' : 'bg-[radial-gradient(#e5e5e5_1px,transparent_1px)] [background-size:16px_16px] bg-white'}`}>
+          {/* Preview Canvas (Fixed 16:9) */}
+          <div className={`relative border border-neutral-300 rounded-xl overflow-hidden aspect-video flex items-center justify-center ${useGreenScreen ? 'bg-[#00FF00]' : 'bg-[radial-gradient(#e5e5e5_1px,transparent_1px)] [background-size:16px_16px] bg-white'}`}>
             <canvas 
               ref={canvasRef} 
               width={dimensions.width} 
               height={dimensions.height}
-              className="w-full max-h-[380px] object-contain"
+              className="w-full h-full object-contain"
             />
           </div>
 
@@ -362,28 +360,12 @@
               disabled={!audioFile || isExporting}
               className="flex-1 py-2.5 rounded-xl border border-neutral-900 text-neutral-900 text-xs font-medium disabled:opacity-40"
             >
-              {isExporting ? `Rendering (${exportProgress}%)` : 'Export Overlay'}
+              {isExporting ? `Rendering (${exportProgress}%)` : 'Export 1080p'}
             </button>
           </div>
 
           {/* Customization Dashboard */}
           <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm space-y-4">
-            
-            {/* Aspect Ratio */}
-            <div>
-              <label className="text-xs font-medium text-neutral-600 block mb-1.5">Canvas Aspect Ratio</label>
-              <div className="grid grid-cols-3 gap-2">
-                {['9:16', '1:1', '16:9'].map(ratio => (
-                  <button 
-                    key={ratio}
-                    onClick={() => setAspectRatio(ratio)}
-                    className={`py-1.5 text-xs rounded-lg border font-mono ${aspectRatio === ratio ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 text-neutral-600'}`}
-                  >
-                    {ratio}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             {/* Waveform Selector */}
             <div>
@@ -538,16 +520,37 @@
                     />
                   </div>
 
-                  {/* Time Counters Toggle */}
-                  <div className="flex justify-between items-center pt-1">
-                    <span className="text-xs text-neutral-700">Display Timestamps ({currentTimeStr} / {totalTimeStr})</span>
-                    <input 
-                      type="checkbox" 
-                      checked={showTimestamp} 
-                      onChange={(e) => setShowTimestamp(e.target.checked)}
-                      className="rounded text-neutral-900 focus:ring-0 w-4 h-4 cursor-pointer"
-                    />
+                  {/* Time Counters Toggle & Font Size */}
+                  <div className="pt-1 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-neutral-700">Display Timestamps ({currentTimeStr} / {totalTimeStr})</span>
+                      <input 
+                        type="checkbox" 
+                        checked={showTimestamp} 
+                        onChange={(e) => setShowTimestamp(e.target.checked)}
+                        className="rounded text-neutral-900 focus:ring-0 w-4 h-4 cursor-pointer"
+                      />
+                    </div>
+
+                    {showTimestamp && (
+                      <div>
+                        <div className="flex justify-between text-[11px] text-neutral-500 mb-1">
+                          <span>Timestamp Font Size</span>
+                          <span className="font-mono">{timestampSize}px</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="14" 
+                          max="64" 
+                          step="2"
+                          value={timestampSize} 
+                          onChange={(e) => setTimestampSize(Number(e.target.value))} 
+                          className="w-full accent-neutral-900"
+                        />
+                      </div>
+                    )}
                   </div>
+
                 </div>
               )}
             </div>
