@@ -9,7 +9,7 @@
   <!-- React & ReactDOM CDN -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <!-- Babel for in-browser JSX parsing -->
+  <!-- Babel for JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-[#fafafa] text-neutral-900 font-sans antialiased min-h-screen">
@@ -18,6 +18,15 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    // Preset color palette matching the circular honeycomb wheel
+    const HONEYCOMB_COLORS = [
+      '#FFFFFF', '#E2E8F0', '#94A3B8', '#475569', '#1E293B', '#000000',
+      '#EF4444', '#F97316', '#F59E0B', '#EAB308', '#84CC16', '#22C55E',
+      '#10B981', '#14B8A6', '#06B6D4', '#0EA5E9', '#3B82F6', '#6366F1',
+      '#8B5CF6', '#A855F7', '#D946EF', '#EC4899', '#F43F5E', '#FB7185',
+      '#FDE047', '#A7F3D0', '#7DD3FC', '#C4B5FD', '#FBCFE8', '#FCA5A5'
+    ];
+
     function App() {
       const [audioFile, setAudioFile] = useState(null);
       const [isPlaying, setIsPlaying] = useState(false);
@@ -25,13 +34,27 @@
       const [waveColor, setWaveColor] = useState('#171717');
       const [barCount, setBarCount] = useState(36);
       const [waveScale, setWaveScale] = useState(1.2);
-      const [showProgress, setShowProgress] = useState(false);
-      const [progressColor, setProgressColor] = useState('#737373');
+
+      // Progress bar & spacing states
+      const [showProgress, setShowProgress] = useState(true);
+      const [sameAsWave, setSameAsWave] = useState(true);
+      const [progressColor, setProgressColor] = useState('#171717');
       const [progressHeight, setProgressHeight] = useState(6);
+      const [spacingOffset, setSpacingOffset] = useState(260); // Distance below waveform
+
+      // Time stamp states
+      const [showTimestamp, setShowTimestamp] = useState(true);
+      const [currentTimeStr, setCurrentTimeStr] = useState('0:00');
+      const [totalTimeStr, setTotalTimeStr] = useState('0:00');
+
+      // Export & display states
       const [aspectRatio, setAspectRatio] = useState('9:16'); // '9:16' | '1:1' | '16:9'
       const [useGreenScreen, setUseGreenScreen] = useState(false);
       const [isExporting, setIsExporting] = useState(false);
       const [exportProgress, setExportProgress] = useState(0);
+
+      // Active color picker modal
+      const [activePalette, setActivePalette] = useState(null); // 'wave' | 'progress' | null
 
       const canvasRef = useRef(null);
       const audioRef = useRef(null);
@@ -47,6 +70,13 @@
         '1:1': { width: 1080, height: 1080 },
         '16:9': { width: 1920, height: 1080 }
       }[aspectRatio];
+
+      const formatTime = (secs) => {
+        if (!secs || isNaN(secs)) return '0:00';
+        const m = Math.floor(secs / 60);
+        const s = Math.floor(secs % 60);
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+      };
 
       const setupAudio = (file) => {
         if (!audioCtxRef.current) {
@@ -94,14 +124,14 @@
         }
       };
 
-      // Drawing Engine
+      // Realtime Drawing Engine
       const draw = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         const { width, height } = dimensions;
 
-        // Clear canvas
+        // Background
         if (useGreenScreen) {
           ctx.fillStyle = '#00FF00';
           ctx.fillRect(0, 0, width, height);
@@ -118,14 +148,15 @@
         const cx = width / 2;
         const cy = height / 2;
 
+        // Draw Waveform
         if (waveType === 'bars') {
-          const barWidth = (width * 0.7) / barCount;
-          const startX = (width - width * 0.7) / 2;
+          const barWidth = (width * 0.72) / barCount;
+          const startX = (width - width * 0.72) / 2;
           ctx.fillStyle = waveColor;
 
           for (let i = 0; i < barCount; i++) {
             const rawVal = freqData[i % freqData.length] || 4;
-            const h = Math.max(6, (rawVal / 255) * 360 * waveScale);
+            const h = Math.max(8, (rawVal / 255) * 360 * waveScale);
             const x = startX + i * barWidth;
             const y = cy - h / 2;
 
@@ -136,13 +167,13 @@
         } else if (waveType === 'wave') {
           ctx.beginPath();
           ctx.strokeStyle = waveColor;
-          ctx.lineWidth = 8;
+          ctx.lineWidth = 10;
           ctx.lineCap = 'round';
           const sliceWidth = (width * 0.75) / barCount;
           const startX = (width - width * 0.75) / 2;
 
           for (let i = 0; i < barCount; i++) {
-            const val = ((freqData[i % freqData.length] || 5) / 255) * 200 * waveScale;
+            const val = ((freqData[i % freqData.length] || 6) / 255) * 220 * waveScale;
             const x = startX + i * sliceWidth;
             const y = cy + (i % 2 === 0 ? -val : val);
             if (i === 0) ctx.moveTo(x, y);
@@ -150,13 +181,13 @@
           }
           ctx.stroke();
         } else if (waveType === 'circle') {
-          const radius = Math.min(width, height) * 0.2;
+          const radius = Math.min(width, height) * 0.22;
           ctx.strokeStyle = waveColor;
           ctx.lineWidth = 6;
 
           for (let i = 0; i < barCount; i++) {
             const angle = (i / barCount) * Math.PI * 2;
-            const val = ((freqData[i % freqData.length] || 4) / 255) * 120 * waveScale;
+            const val = ((freqData[i % freqData.length] || 4) / 255) * 140 * waveScale;
             const x1 = cx + Math.cos(angle) * radius;
             const y1 = cy + Math.sin(angle) * radius;
             const x2 = cx + Math.cos(angle) * (radius + val);
@@ -169,24 +200,45 @@
           }
         }
 
-        // Progress Bar
-        if (showProgress && audioRef.current && audioRef.current.duration) {
-          const pct = audioRef.current.currentTime / audioRef.current.duration;
-          const barW = width * 0.8;
+        // Active Color for Progress Bar
+        const activeBarColor = sameAsWave ? waveColor : progressColor;
+
+        // Progress Bar & Spacing Calculation
+        if (showProgress) {
+          const curTime = audioRef.current?.currentTime || 0;
+          const dur = audioRef.current?.duration || 1;
+          const pct = Math.min(1, Math.max(0, curTime / dur));
+
+          const barW = width * 0.72;
           const barX = (width - barW) / 2;
-          const barY = cy + 260;
+          const barY = cy + spacingOffset; // Configurable Spacing Offset
 
           // Track
-          ctx.fillStyle = 'rgba(150, 150, 150, 0.25)';
+          ctx.fillStyle = useGreenScreen ? 'rgba(0, 0, 0, 0.25)' : 'rgba(150, 150, 150, 0.3)';
           ctx.beginPath();
-          ctx.roundRect(barX, barY, barW, progressHeight, 4);
+          ctx.roundRect(barX, barY, barW, progressHeight, 6);
           ctx.fill();
 
-          // Fill
-          ctx.fillStyle = progressColor;
+          // Progress fill
+          ctx.fillStyle = activeBarColor;
           ctx.beginPath();
-          ctx.roundRect(barX, barY, barW * pct, progressHeight, 4);
+          ctx.roundRect(barX, barY, Math.max(progressHeight, barW * pct), progressHeight, 6);
           ctx.fill();
+
+          // Time Counters
+          if (showTimestamp) {
+            ctx.fillStyle = activeBarColor;
+            ctx.font = '600 24px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.textBaseline = 'middle';
+
+            // Left (Current Time)
+            ctx.textAlign = 'left';
+            ctx.fillText(formatTime(curTime), barX, barY + progressHeight + 34);
+
+            // Right (Total Duration)
+            ctx.textAlign = 'right';
+            ctx.fillText(formatTime(dur), barX + barW, barY + progressHeight + 34);
+          }
         }
 
         animationFrameRef.current = requestAnimationFrame(draw);
@@ -195,7 +247,15 @@
       useEffect(() => {
         animationFrameRef.current = requestAnimationFrame(draw);
         return () => cancelAnimationFrame(animationFrameRef.current);
-      }, [dimensions, waveType, waveColor, barCount, waveScale, showProgress, progressColor, progressHeight, useGreenScreen, isPlaying]);
+      }, [dimensions, waveType, waveColor, barCount, waveScale, showProgress, sameAsWave, progressColor, progressHeight, spacingOffset, showTimestamp, useGreenScreen, isPlaying]);
+
+      // Handle time updates for UI
+      const handleTimeUpdate = () => {
+        if (audioRef.current) {
+          setCurrentTimeStr(formatTime(audioRef.current.currentTime));
+          setTotalTimeStr(formatTime(audioRef.current.duration));
+        }
+      };
 
       // Video Export
       const startExport = () => {
@@ -206,7 +266,6 @@
         const canvas = canvasRef.current;
         const stream = canvas.captureStream(30);
 
-        // Mix audio
         if (audioCtxRef.current) {
           const dest = audioCtxRef.current.createMediaStreamDestination();
           sourceRef.current.connect(dest);
@@ -242,6 +301,7 @@
 
         audioRef.current.ontimeupdate = () => {
           if (audioRef.current) {
+            handleTimeUpdate();
             setExportProgress(Math.round((audioRef.current.currentTime / audioRef.current.duration) * 100));
           }
         };
@@ -253,13 +313,13 @@
       };
 
       return (
-        <div className="max-w-md mx-auto p-4 flex flex-col gap-4 pb-20">
+        <div className="max-w-md mx-auto p-4 flex flex-col gap-4 pb-24">
           <header className="border-b border-neutral-200 pb-3 flex justify-between items-center">
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-neutral-900">Audiogram Overlay</h1>
-              <p className="text-xs text-neutral-400">1080p Transparent / Green Screen</p>
+              <h1 className="text-base font-semibold tracking-tight text-neutral-900">Audiogram Studio</h1>
+              <p className="text-xs text-neutral-500">Transparent & Green Screen Overlay</p>
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-300 font-mono text-neutral-600">v1.0</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full border border-neutral-300 font-mono text-neutral-600">v2.0</span>
           </header>
 
           {/* Audio Upload */}
@@ -269,18 +329,24 @@
               type="file" 
               accept="audio/*" 
               onChange={handleFileUpload} 
-              className="text-xs file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-neutral-900 file:text-white"
+              className="text-xs w-full file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-neutral-900 file:text-white"
             />
-            <audio ref={audioRef} onEnded={() => setIsPlaying(false)} className="hidden" />
+            <audio 
+              ref={audioRef} 
+              onTimeUpdate={handleTimeUpdate} 
+              onLoadedMetadata={handleTimeUpdate}
+              onEnded={() => setIsPlaying(false)} 
+              className="hidden" 
+            />
           </div>
 
-          {/* Canvas Preview Container */}
+          {/* Preview Canvas */}
           <div className={`relative border border-neutral-300 rounded-xl overflow-hidden flex items-center justify-center ${useGreenScreen ? 'bg-[#00FF00]' : 'bg-[radial-gradient(#e5e5e5_1px,transparent_1px)] [background-size:16px_16px] bg-white'}`}>
             <canvas 
               ref={canvasRef} 
               width={dimensions.width} 
               height={dimensions.height}
-              className="w-full max-h-[360px] object-contain"
+              className="w-full max-h-[380px] object-contain"
             />
           </div>
 
@@ -302,11 +368,12 @@
             </button>
           </div>
 
-          {/* Customization Controls */}
+          {/* Customization Dashboard */}
           <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm space-y-4">
+            
             {/* Aspect Ratio */}
             <div>
-              <label className="text-xs font-medium text-neutral-600 block mb-1.5">Aspect Ratio</label>
+              <label className="text-xs font-medium text-neutral-600 block mb-1.5">Canvas Aspect Ratio</label>
               <div className="grid grid-cols-3 gap-2">
                 {['9:16', '1:1', '16:9'].map(ratio => (
                   <button 
@@ -320,7 +387,7 @@
               </div>
             </div>
 
-            {/* Waveform Style */}
+            {/* Waveform Selector */}
             <div>
               <label className="text-xs font-medium text-neutral-600 block mb-1.5">Waveform Style</label>
               <div className="grid grid-cols-3 gap-2">
@@ -340,63 +407,137 @@
               </div>
             </div>
 
-            {/* Colors */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-neutral-600 block mb-1">Wave Color</label>
+            {/* Wave Color with Honeycomb Picker Button */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-medium text-neutral-600">Wave Color</label>
+                <span className="text-[11px] font-mono text-neutral-500">{waveColor}</span>
+              </div>
+              <button 
+                onClick={() => setActivePalette(activePalette === 'wave' ? null : 'wave')}
+                className="w-full flex items-center justify-between p-2 rounded-lg border border-neutral-200 hover:border-neutral-400 bg-neutral-50"
+              >
                 <div className="flex items-center gap-2">
-                  <input 
-                    type="color" 
-                    value={waveColor} 
-                    onChange={(e) => setWaveColor(e.target.value)} 
-                    className="w-8 h-8 rounded border-0 p-0 cursor-pointer"
-                  />
-                  <span className="text-xs font-mono text-neutral-500">{waveColor}</span>
+                  <div className="w-5 h-5 rounded-full border border-neutral-300 shadow-sm" style={{ backgroundColor: waveColor }} />
+                  <span className="text-xs font-medium text-neutral-700">Choose from Palette Wheel</span>
                 </div>
-              </div>
+                <span className="text-xs text-neutral-400">{activePalette === 'wave' ? 'Close' : 'Select'}</span>
+              </button>
 
-              <div>
-                <label className="text-xs font-medium text-neutral-600 block mb-1">Mode</label>
-                <button 
-                  onClick={() => setUseGreenScreen(!useGreenScreen)}
-                  className={`w-full py-1.5 px-2 text-xs rounded-lg border font-medium ${useGreenScreen ? 'border-green-600 bg-green-50 text-green-700' : 'border-neutral-200 text-neutral-600'}`}
-                >
-                  {useGreenScreen ? 'Green Screen (#00FF00)' : 'Alpha Transparent'}
-                </button>
-              </div>
+              {/* Honeycomb Radial Palette Picker for Wave */}
+              {activePalette === 'wave' && (
+                <div className="mt-2 p-3 bg-neutral-50 border border-neutral-200 rounded-xl grid grid-cols-6 gap-2 place-items-center">
+                  {HONEYCOMB_COLORS.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => { setWaveColor(color); setActivePalette(null); }}
+                      className="w-7 h-7 rounded-full border border-black/10 shadow-sm active:scale-90 transition-transform"
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Progress Bar Toggle */}
-            <div className="border-t border-neutral-100 pt-3">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-medium text-neutral-700">Audio Progress Bar</span>
+            {/* Output Background Mode */}
+            <div>
+              <label className="text-xs font-medium text-neutral-600 block mb-1">Overlay Mode</label>
+              <button 
+                onClick={() => setUseGreenScreen(!useGreenScreen)}
+                className={`w-full py-2 px-3 text-xs rounded-lg border font-medium flex items-center justify-between ${useGreenScreen ? 'border-green-600 bg-green-50 text-green-700' : 'border-neutral-200 text-neutral-700'}`}
+              >
+                <span>{useGreenScreen ? 'Chroma Key Green (#00FF00)' : 'Transparent Alpha (WebM)'}</span>
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/70 border border-current">
+                  {useGreenScreen ? 'Green Screen' : 'Transparent'}
+                </span>
+              </button>
+            </div>
+
+            {/* Progress Bar & Spacing Section */}
+            <div className="border-t border-neutral-100 pt-3 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-medium text-neutral-800">Progress Bar</span>
                 <input 
                   type="checkbox" 
                   checked={showProgress} 
                   onChange={(e) => setShowProgress(e.target.checked)}
-                  className="rounded text-neutral-900 focus:ring-0"
+                  className="rounded text-neutral-900 focus:ring-0 w-4 h-4 cursor-pointer"
                 />
               </div>
 
               {showProgress && (
-                <div className="flex items-center gap-3 mt-2">
-                  <input 
-                    type="color" 
-                    value={progressColor} 
-                    onChange={(e) => setProgressColor(e.target.value)} 
-                    className="w-7 h-7 rounded border-0 p-0 cursor-pointer"
-                  />
-                  <input 
-                    type="range" 
-                    min="3" 
-                    max="14" 
-                    value={progressHeight} 
-                    onChange={(e) => setProgressHeight(Number(e.target.value))} 
-                    className="flex-1 accent-neutral-900"
-                  />
+                <div className="space-y-3 pl-2 border-l-2 border-neutral-100">
+                  {/* Same as Wave Checkbox */}
+                  <label className="flex items-center gap-2 text-xs text-neutral-700 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={sameAsWave} 
+                      onChange={(e) => setSameAsWave(e.target.checked)}
+                      className="rounded text-neutral-900 focus:ring-0"
+                    />
+                    <span>Same color as waveform</span>
+                  </label>
+
+                  {/* Custom Color Picker if not same as wave */}
+                  {!sameAsWave && (
+                    <div>
+                      <button 
+                        onClick={() => setActivePalette(activePalette === 'progress' ? null : 'progress')}
+                        className="w-full flex items-center justify-between p-2 rounded-lg border border-neutral-200 bg-neutral-50 text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 rounded-full border border-neutral-300" style={{ backgroundColor: progressColor }} />
+                          <span>Progress Color</span>
+                        </div>
+                        <span className="text-neutral-400 font-mono">{progressColor}</span>
+                      </button>
+
+                      {activePalette === 'progress' && (
+                        <div className="mt-2 p-3 bg-neutral-50 border border-neutral-200 rounded-xl grid grid-cols-6 gap-2 place-items-center">
+                          {HONEYCOMB_COLORS.map(color => (
+                            <button
+                              key={color}
+                              onClick={() => { setProgressColor(color); setActivePalette(null); }}
+                              className="w-7 h-7 rounded-full border border-black/10 shadow-sm active:scale-90 transition-transform"
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Manual Spacing Adjustment */}
+                  <div>
+                    <div className="flex justify-between text-[11px] text-neutral-500 mb-1">
+                      <span>Waveform & Bar Spacing</span>
+                      <span className="font-mono">{spacingOffset}px</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="100" 
+                      max="450" 
+                      step="5"
+                      value={spacingOffset} 
+                      onChange={(e) => setSpacingOffset(Number(e.target.value))} 
+                      className="w-full accent-neutral-900"
+                    />
+                  </div>
+
+                  {/* Time Counters Toggle */}
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-xs text-neutral-700">Display Timestamps ({currentTimeStr} / {totalTimeStr})</span>
+                    <input 
+                      type="checkbox" 
+                      checked={showTimestamp} 
+                      onChange={(e) => setShowTimestamp(e.target.checked)}
+                      className="rounded text-neutral-900 focus:ring-0 w-4 h-4 cursor-pointer"
+                    />
+                  </div>
                 </div>
               )}
             </div>
+
           </div>
         </div>
       );
